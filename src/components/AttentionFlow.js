@@ -212,10 +212,7 @@ const AttentionFlow = ({
     };
 
     // Main animation loop
-    let lastTime = Date.now();
-    const animate = (currentTime) => {
-      const deltaTime = currentTime - lastTime;
-      lastTime = currentTime;
+    const animate = () => {
 
       // Clear canvas
       ctx.clearRect(0, 0, width, height);

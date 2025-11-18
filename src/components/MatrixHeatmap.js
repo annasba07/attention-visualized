@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { COLORS, heatmapColor, attentionToColor } from '../utils/colorUtils';
+import { heatmapColor, attentionToColor } from '../utils/colorUtils';
 
 /**
  * MatrixHeatmap - Beautiful animated heatmap visualization
