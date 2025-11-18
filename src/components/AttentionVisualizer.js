@@ -1,16 +1,35 @@
-import React, { useState, useEffect, useRef } from 'react';
-import { Play, Pause, RotateCcw, ChevronRight, ChevronDown, Eye, Lightbulb, Zap } from 'lucide-react';
+import React, { useState, useEffect, useMemo } from 'react';
+import { Play, Pause, Lightbulb, BookOpen } from 'lucide-react';
+import VectorVisualization from './VectorVisualization';
+import DotProductVisualization from './DotProductVisualization';
+import MatrixHeatmap from './MatrixHeatmap';
+import InteractiveControls from './InteractiveControls';
+import AttentionFlow from './AttentionFlow';
+import CalculationBreakdown, { InlineFormula, MatrixDisplay } from './CalculationBreakdown';
+import { COLORS } from '../utils/colorUtils';
+import {
+  generateEmbeddings,
+  initWeightMatrix,
+  matMul,
+  transpose,
+  computeAttentionScores,
+  softmax,
+  computeAttentionWeights,
+  computeAttentionOutput,
+} from '../utils/mathUtils';
 
+/**
+ * AttentionVisualizer - Main component (3Blue1Brown-inspired)
+ * Beautiful, interactive visualization of transformer attention
+ */
 const AttentionVisualizer = () => {
-  const [inputText, setInputText] = useState("The cat sat on the mat");
+  // State
+  const [inputText, setInputText] = useState('The cat sat on the mat');
   const [currentStep, setCurrentStep] = useState(0);
-  const [isPlaying, setIsPlaying] = useState(false);
-  const [expandedSections, setExpandedSections] = useState({});
-  const [hoveredToken, setHoveredToken] = useState(null);
+  const [showMath, setShowMath] = useState(true);
+  const [autoPlay, setAutoPlay] = useState(false);
+  const [temperature, setTemperature] = useState(1.0);
   const [selectedToken, setSelectedToken] = useState(null);
-  const [showMath, setShowMath] = useState(false);
-  const [animationPhase, setAnimationPhase] = useState(0);
-  const svgRef = useRef(null);
 
   // Model dimensions
   const dModel = 4;
@@ -18,676 +37,601 @@ const AttentionVisualizer = () => {
   const dV = 2;
 
   // Parse tokens
-  const tokens = inputText.trim().split(' ').filter(t => t.length > 0);
-  const seqLen = tokens.length;
+  const tokens = useMemo(() => {
+    return inputText.trim().split(' ').filter((t) => t.length > 0);
+  }, [inputText]);
 
-  // Initialize embeddings with more meaningful patterns
-  const embeddings = tokens.length > 0 ? tokens.map((token, i) => {
-    // Create embeddings that relate to word meaning/position
-    const base = [
-      Math.sin(i * 0.5) * 0.8 + 0.2,
-      Math.cos(i * 0.3) * 0.6 + 0.4,
-      token.length * 0.1,
-      (token.charCodeAt(0) % 10) * 0.1
-    ];
-    return base.map(val => Math.round(val * 100) / 100);
-  }) : [];
+  // Compute embeddings and transformations
+  const embeddings = useMemo(() => generateEmbeddings(tokens, dModel), [tokens, dModel]);
 
-  // Weight matrices (simplified for visualization)
-  const WQ = [[0.5, -0.3], [0.2, 0.8], [-0.4, 0.6], [0.7, -0.1]];
-  const WK = [[0.3, 0.9], [-0.2, 0.4], [0.8, -0.5], [0.1, 0.7]];
-  const WV = [[0.6, 0.2], [0.4, -0.8], [-0.3, 0.5], [0.9, 0.1]];
+  const WQ = useMemo(() => initWeightMatrix(dModel, dK, 1), [dModel, dK]);
+  const WK = useMemo(() => initWeightMatrix(dModel, dK, 2), [dModel, dK]);
+  const WV = useMemo(() => initWeightMatrix(dModel, dV, 3), [dModel, dV]);
 
-  // Matrix operations
-  const matMul = (A, B) => {
-    if (!A || !B || !A.length || !B.length || !A[0] || !B[0]) return [];
-    const result = Array.from({length: A.length}, () => 
-      Array.from({length: B[0].length}, () => 0)
+  const Q = useMemo(() => matMul(embeddings, WQ), [embeddings, WQ]);
+  const K = useMemo(() => matMul(embeddings, WK), [embeddings, WK]);
+  const V = useMemo(() => matMul(embeddings, WV), [embeddings, WV]);
+
+  const scores = useMemo(() => {
+    if (!Q || !K || Q.length === 0 || K.length === 0) return [];
+    const KT = transpose(K);
+    return matMul(Q, KT);
+  }, [Q, K]);
+
+  const scaledScores = useMemo(() => {
+    if (!scores || scores.length === 0) return [];
+    return scores.map((row) =>
+      row.map((val) => Math.round((val / Math.sqrt(dK)) * 100) / 100)
     );
-    for (let i = 0; i < A.length; i++) {
-      for (let j = 0; j < B[0].length; j++) {
-        for (let k = 0; k < B.length; k++) {
-          result[i][j] += A[i][k] * B[k][j];
-        }
-      }
-    }
-    return result.map(row => row.map(val => Math.round(val * 100) / 100));
-  };
+  }, [scores, dK]);
 
-  const Q = embeddings.length > 0 ? matMul(embeddings, WQ) : [];
-  const K = embeddings.length > 0 ? matMul(embeddings, WK) : [];
-  const V = embeddings.length > 0 ? matMul(embeddings, WV) : [];
+  const attentionWeights = useMemo(() => {
+    if (!scaledScores || scaledScores.length === 0) return [];
+    return scaledScores.map((row) => {
+      // Apply temperature
+      const tempScaled = row.map((val) => val / temperature);
+      return softmax(tempScaled);
+    });
+  }, [scaledScores, temperature]);
 
-  const scores = Q.length > 0 && K.length > 0 && K[0] ? matMul(Q, K[0].map((_, i) => K.map(row => row[i]))) : [];
-  const scaledScores = scores.length > 0 ? scores.map(row => 
-    row.map(val => Math.round(val / Math.sqrt(dK) * 100) / 100)
-  ) : [];
+  const output = useMemo(() => {
+    return computeAttentionOutput(attentionWeights, V);
+  }, [attentionWeights, V]);
 
-  const softmax = (arr) => {
-    if (!arr.length) return [];
-    const maxVal = Math.max(...arr);
-    const exp = arr.map(x => Math.exp(x - maxVal));
-    const sum = exp.reduce((a, b) => a + b, 0);
-    return exp.map(x => Math.round(x / sum * 1000) / 1000);
-  };
+  // Auto-play effect
+  useEffect(() => {
+    if (!autoPlay) return;
 
-  const attentionWeights = scaledScores.length > 0 ? scaledScores.map(row => softmax(row)) : [];
-  const output = attentionWeights.length > 0 ? matMul(attentionWeights, V) : [];
+    const interval = setInterval(() => {
+      setCurrentStep((s) => (s + 1) % steps.length);
+    }, 5000);
 
+    return () => clearInterval(interval);
+  }, [autoPlay]);
+
+  // Step definitions
   const steps = [
     {
-      title: "Step 1: Words as Vectors",
-      subtitle: "Every word becomes a list of numbers",
-      description: "Just like how we might describe a person with height, weight, age, etc., each word gets numbers that capture its 'meaning'",
-      component: "embeddings",
-      metaphor: "🏷️ Think of this like giving each word a unique ID card with several numbers on it"
+      id: 'embeddings',
+      title: 'Step 1: Words → Vectors',
+      subtitle: 'Converting language to mathematics',
+      description:
+        'Each word is represented as a vector of numbers. This encoding captures semantic meaning in a form computers can process.',
+      icon: '📊',
     },
     {
-      title: "Step 2: Three Questions for Each Word",
-      subtitle: "What am I looking for? What do I offer? What do I contribute?",
-      description: "Each word gets transformed into three roles: Query (what it wants), Key (what it offers), Value (what it gives)",
-      component: "qkv",
-      metaphor: "🔍 Like at a networking event: what you're seeking, what you're offering, what you'd share if someone's interested"
+      id: 'qkv',
+      title: 'Step 2: Query, Key, Value',
+      subtitle: 'Three perspectives on each word',
+      description:
+        'We transform each word into three different "views": what it\'s looking for (Query), what it offers (Key), and what it contributes (Value).',
+      icon: '🔑',
     },
     {
-      title: "Step 3: Measuring Compatibility",
-      subtitle: "How well do words match with each other?",
-      description: "We compare what each word is looking for with what every other word offers",
-      component: "scores",
-      metaphor: "📊 Like a compatibility test - higher scores mean better matches!"
+      id: 'scores',
+      title: 'Step 3: Compatibility Scores',
+      subtitle: 'Measuring similarity',
+      description:
+        'We compute how well each Query matches with each Key using the dot product—a geometric measure of alignment.',
+      icon: '🎯',
     },
     {
-      title: "Step 4: Attention Spotlight",
-      subtitle: "Turn compatibility into focus",
-      description: "Convert raw scores into a 'spotlight' - each word decides how much attention to pay to every other word",
-      component: "attention",
-      metaphor: "💡 Like adjusting the brightness of multiple spotlights in a theater"
+      id: 'attention',
+      title: 'Step 4: Attention Weights',
+      subtitle: 'From scores to probabilities',
+      description:
+        'Softmax converts compatibility scores into a probability distribution, determining how much attention each word pays to others.',
+      icon: '💡',
     },
     {
-      title: "Step 5: Gathering Information",
-      subtitle: "Each word collects what it needs",
-      description: "Using the attention weights, each word gathers information from all the words it's paying attention to",
-      component: "output",
-      metaphor: "🎯 Like a reporter gathering quotes from different sources, weighted by how relevant each source is"
-    }
+      id: 'output',
+      title: 'Step 5: Weighted Combination',
+      subtitle: 'Gathering contextual information',
+      description:
+        'Each word gathers information from others, weighted by attention. The result is context-aware representations.',
+      icon: '✨',
+    },
   ];
 
-  // Animation control
-  useEffect(() => {
-    let interval;
-    if (isPlaying) {
-      interval = setInterval(() => {
-        setAnimationPhase(phase => (phase + 1) % 4);
-      }, 1000);
-    }
-    return () => clearInterval(interval);
-  }, [isPlaying]);
+  const currentStepData = steps[currentStep];
 
-  useEffect(() => {
-    let stepInterval;
-    if (isPlaying) {
-      stepInterval = setInterval(() => {
-        setCurrentStep(current => current < steps.length - 1 ? current + 1 : 0);
-      }, 4000);
-    }
-    return () => clearInterval(stepInterval);
-  }, [isPlaying, steps.length]);
+  // Calculation breakdowns for each step
+  const getCalculationSteps = () => {
+    switch (currentStepData.id) {
+      case 'embeddings':
+        return [
+          {
+            label: 'Word Tokenization',
+            description: 'Split input text into individual tokens',
+            example: `Input: "${inputText}" → Tokens: [${tokens.map((t) => `"${t}"`).join(', ')}]`,
+            insight: 'Each word becomes a discrete unit we can process independently.',
+          },
+          {
+            label: 'Embedding Generation',
+            description: `Map each token to a ${dModel}-dimensional vector`,
+            formula: `embedding_i = [sin(i×0.5)×0.8+0.2, cos(i×0.3)×0.6+0.4, length/10, charCode/26]`,
+            insight:
+              'These vectors encode position and word properties. Real models use learned embeddings.',
+          },
+        ];
 
-  const generateAttentionStory = (word, allTokens, attentionRow, wordIndex) => {
-    if (!attentionRow || attentionRow.length === 0 || !allTokens || allTokens.length === 0) {
-      return `"${word}" is still calculating its attention patterns...`;
-    }
-    
-    const sortedAttention = attentionRow
-      .map((weight, idx) => ({ 
-        weight: weight || 0, 
-        idx, 
-        token: allTokens[idx] || 'unknown' 
-      }))
-      .filter(item => item.token !== 'unknown')
-      .sort((a, b) => b.weight - a.weight);
-    
-    if (sortedAttention.length < 2) {
-      return `"${word}" is still calculating its attention patterns...`;
-    }
-    
-    const topAttention = sortedAttention.slice(0, 3);
-    
-    if (topAttention[0].idx === wordIndex) {
-      return `"${word}" is mostly focused on itself (${Math.round(topAttention[0].weight * 100)}%), but also pays some attention to "${topAttention[1].token}" (${Math.round(topAttention[1].weight * 100)}%).`;
-    } else {
-      return `"${word}" is most interested in "${topAttention[0].token}" (${Math.round(topAttention[0].weight * 100)}% of its attention), followed by "${topAttention[1].token}" (${Math.round(topAttention[1].weight * 100)}%).`;
+      case 'qkv':
+        return [
+          {
+            label: 'Query Transformation',
+            description: 'What is each word looking for?',
+            formula: 'Q = Embeddings × W_Q',
+            example: embeddings.length > 0 && `Result shape: ${Q.length} × ${Q[0]?.length || 0}`,
+            insight: 'Query vectors represent what information each word needs from the context.',
+          },
+          {
+            label: 'Key Transformation',
+            description: 'What does each word offer?',
+            formula: 'K = Embeddings × W_K',
+            example: embeddings.length > 0 && `Result shape: ${K.length} × ${K[0]?.length || 0}`,
+            insight: 'Key vectors advertise what information each word can provide.',
+          },
+          {
+            label: 'Value Transformation',
+            description: 'What will each word contribute?',
+            formula: 'V = Embeddings × W_V',
+            example: embeddings.length > 0 && `Result shape: ${V.length} × ${V[0]?.length || 0}`,
+            insight:
+              'Value vectors contain the actual information to be passed based on attention.',
+          },
+        ];
+
+      case 'scores':
+        return [
+          {
+            label: 'Dot Product Computation',
+            description: 'Measure Query-Key similarity',
+            formula: 'Scores = Q × K^T',
+            insight:
+              'Dot product is large when vectors point in similar directions—high similarity!',
+          },
+          {
+            label: 'Scaling',
+            description: 'Normalize by key dimension',
+            formula: `Scaled = Scores / √${dK} = Scores / ${Math.sqrt(dK).toFixed(2)}`,
+            insight:
+              'Scaling prevents very large values that would make softmax too "sharp" and hard to train.',
+          },
+        ];
+
+      case 'attention':
+        return [
+          {
+            label: 'Temperature Adjustment',
+            description: 'Control attention focus',
+            formula: `Temp_Scores = Scaled_Scores / ${temperature.toFixed(2)}`,
+            insight: 'Lower temperature → sharper attention. Higher temperature → smoother attention.',
+          },
+          {
+            label: 'Softmax Normalization',
+            description: 'Convert to probability distribution',
+            formula: 'Attention[i,j] = exp(score[i,j]) / Σ_k exp(score[i,k])',
+            insight:
+              'Each row sums to 1.0, making it a valid probability distribution over all tokens.',
+          },
+        ];
+
+      case 'output':
+        return [
+          {
+            label: 'Weighted Sum',
+            description: 'Combine Values according to attention',
+            formula: 'Output = Attention × V',
+            insight:
+              'Each output vector is a weighted mixture of all Value vectors, with weights from attention.',
+          },
+          {
+            label: 'Contextualization',
+            description: 'Words now understand their context',
+            insight:
+              'Unlike the original embeddings, these outputs incorporate information from the entire sequence!',
+          },
+        ];
+
+      default:
+        return [];
     }
   };
 
-  // Interactive attention visualization
-  const AttentionGraph = ({ weights, tokenList, interactive = true }) => {
-    const displayToken = hoveredToken !== null ? hoveredToken : selectedToken;
-    
-    return (
-      <div className="bg-gradient-to-br from-blue-50 to-indigo-50 p-6 rounded-xl border-2 border-blue-200">
-        <h4 className="font-bold text-lg mb-4 flex items-center gap-2">
-          <Eye className="text-blue-600" />
-          Attention Spotlight
-        </h4>
-        <p className="text-sm text-gray-600 mb-4">
-          {displayToken !== null 
-            ? `"${tokenList[displayToken]}" is paying attention to:` 
-            : "Hover over a word to see what it pays attention to!"
-          }
-        </p>
-        
-        <div className="flex flex-wrap gap-3 mb-6">
-          {tokenList.map((token, i) => {
-            const attention = displayToken !== null ? (weights[displayToken] && weights[displayToken][i] ? weights[displayToken][i] : 0) : 0;
-            const isActive = displayToken === i;
-            const isHovered = hoveredToken === i;
-            const baseOpacity = displayToken !== null ? Math.max(0.4, Math.min(1, attention + 0.3)) : 1;
-            
-            return (
-              <div
-                key={i}
-                className={`relative px-4 py-3 rounded-lg border-2 cursor-pointer transition-all duration-200 overflow-hidden ${
-                  isActive 
-                    ? 'bg-blue-600 text-white border-blue-600 shadow-lg' 
-                    : 'bg-white border-gray-300 hover:border-blue-400 hover:shadow-md'
-                }`}
-                style={{
-                  opacity: baseOpacity,
-                  transform: isActive ? 'scale(1.05)' : isHovered ? 'scale(1.02)' : 'scale(1)'
-                }}
-                onMouseEnter={() => {
-                  if (interactive) {
-                    setHoveredToken(i);
-                  }
-                }}
-                onMouseLeave={() => {
-                  if (interactive) {
-                    setHoveredToken(null);
-                  }
-                }}
-                onClick={() => {
-                  if (interactive) {
-                    setSelectedToken(selectedToken === i ? null : i);
-                    setHoveredToken(null);
-                  }
-                }}
-              >
-                <div className="font-medium">{token}</div>
-                {displayToken !== null && !isActive && attention > 0 && (
-                  <div className="text-xs mt-1 opacity-75">
-                    {Math.round(attention * 100)}% attention
-                  </div>
-                )}
-                {displayToken !== null && attention > 0 && (
-                  <div 
-                    className="absolute -top-2 -right-2 w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold border-2 border-white"
-                    style={{
-                      backgroundColor: attention > 0.5 ? '#3b82f6' : '#93c5fd',
-                      color: attention > 0.3 ? 'white' : '#1f2937'
-                    }}
-                  >
-                    {Math.round(attention * 10)}
-                  </div>
-                )}
-              </div>
-            );
-          })}
-        </div>
-
-        {displayToken !== null && (
-          <div className="bg-white p-4 rounded-lg border">
-            <h5 className="font-semibold mb-2">Attention Story for "{tokenList[displayToken]}":</h5>
-            <p className="text-sm text-gray-700">
-              {generateAttentionStory(tokenList[displayToken], tokenList, weights[displayToken] || [], displayToken)}
-            </p>
-          </div>
-        )}
-      </div>
-    );
-  };
-
-  // Animated attention flow
-  const AttentionFlow = ({ weights, tokenList }) => {
-    const canvasRef = useRef(null);
-    
-    useEffect(() => {
-      const canvas = canvasRef.current;
-      if (!canvas || !weights || !weights.length || selectedToken === null) return;
-      
-      const ctx = canvas.getContext('2d');
-      const width = canvas.width;
-      const height = canvas.height;
-      
-      // Clear canvas
-      ctx.clearRect(0, 0, width, height);
-      
-      // Draw flowing connections
-      const tokenPositions = tokenList.map((_, i) => ({
-        x: (width / (tokenList.length + 1)) * (i + 1),
-        y: height / 2
-      }));
-      
-      const selectedWeights = weights[selectedToken];
-      if (selectedWeights && selectedWeights.length > 0) {
-        selectedWeights.forEach((weight, targetIdx) => {
-          if (weight > 0.05 && targetIdx !== selectedToken && targetIdx < tokenPositions.length) {
-            const start = tokenPositions[selectedToken];
-            const end = tokenPositions[targetIdx];
-            
-            // Animated flowing line
-            const phase = (animationPhase * Math.PI) / 2;
-            
-            ctx.beginPath();
-            ctx.strokeStyle = `rgba(59, 130, 246, ${Math.min(1, weight * 2)})`;
-            ctx.lineWidth = Math.max(2, weight * 8);
-            
-            // Create flowing effect
-            const midX = (start.x + end.x) / 2;
-            const midY = (start.y + end.y) / 2 - 30 * Math.sin(phase + weight);
-            
-            ctx.moveTo(start.x, start.y);
-            ctx.quadraticCurveTo(midX, midY, end.x, end.y);
-            ctx.stroke();
-            
-            // Add flowing particles
-            const t = (Math.sin(phase + weight) + 1) / 2;
-            const particleX = start.x + (end.x - start.x) * t;
-            const particleY = start.y + (midY - start.y) * 2 * t * (1 - t);
-            
-            ctx.beginPath();
-            ctx.fillStyle = '#3b82f6';
-            ctx.arc(particleX, particleY, Math.max(2, weight * 6), 0, Math.PI * 2);
-            ctx.fill();
-            
-            // Add attention value label
-            ctx.fillStyle = '#1f2937';
-            ctx.font = '12px sans-serif';
-            ctx.fillText(`${Math.round(weight * 100)}%`, end.x + 5, end.y - 10);
-          }
-        });
-      }
-    }, [weights, tokenList, selectedToken, animationPhase]);
-    
-    return (
-      <div className="bg-gray-50 p-4 rounded-lg">
-        <h4 className="font-semibold mb-2 flex items-center gap-2">
-          <Zap className="text-yellow-500" />
-          Attention Flow Animation
-        </h4>
-        <p className="text-sm text-gray-600 mb-3">
-          {selectedToken !== null 
-            ? `Showing attention flow from "${tokenList[selectedToken]}"` 
-            : "Click on a word above to see animated attention flow!"
-          }
-        </p>
-        <canvas 
-          ref={canvasRef} 
-          width={600} 
-          height={150}
-          className="border rounded bg-white w-full"
-          style={{ maxWidth: '100%' }}
-        />
-      </div>
-    );
-  };
-
-  const SimpleMatrix = ({ matrix, title, description, colorCode = false }) => {
-    if (!matrix || !matrix.length || !matrix[0]) {
-      return (
-        <div className="bg-white border-2 border-gray-200 rounded-lg p-4">
-          <h4 className="font-semibold mb-2">{title}</h4>
-          {description && <p className="text-sm text-gray-600 mb-3">{description}</p>}
-          <p className="text-gray-500 italic">No data to display</p>
-        </div>
-      );
-    }
-
-    return (
-      <div className="bg-white border-2 border-gray-200 rounded-lg p-4">
-        <h4 className="font-semibold mb-2">{title}</h4>
-        {description && <p className="text-sm text-gray-600 mb-3">{description}</p>}
-        <div className="grid gap-2" style={{gridTemplateColumns: `repeat(${matrix[0]?.length || 1}, 1fr)`}}>
-          {matrix.map((row, i) => 
-            row && row.map((val, j) => {
-              const intensity = colorCode ? Math.abs(val) : 0;
-              return (
-                <div
-                  key={`${i}-${j}`}
-                  className="px-2 py-2 text-center rounded font-mono text-sm border"
-                  style={{
-                    backgroundColor: colorCode 
-                      ? `rgba(59, 130, 246, ${Math.min(1, intensity / 2)})` 
-                      : 'white',
-                    color: colorCode && intensity > 1 ? 'white' : 'black'
-                  }}
-                >
-                  {typeof val === 'number' ? val.toFixed(2) : val}
-                </div>
-              );
-            })
-          )}
-        </div>
-      </div>
-    );
-  };
-
-  const StepContent = () => {
-    const step = steps[currentStep];
-    
-    return (
-      <div className="space-y-6">
-        {/* Metaphor card */}
-        <div className="bg-gradient-to-r from-purple-100 to-pink-100 p-4 rounded-lg border-2 border-purple-200">
-          <div className="flex items-center gap-2 mb-2">
-            <Lightbulb className="text-purple-600" />
-            <h4 className="font-semibold text-purple-800">Think of it like this:</h4>
-          </div>
-          <p className="text-purple-700">{step.metaphor}</p>
-        </div>
-
-        {/* Step-specific content */}
-        {step.component === "embeddings" && (
-          <div className="grid md:grid-cols-2 gap-4">
-            <div className="space-y-4">
-              <h4 className="font-semibold text-lg">Our Words:</h4>
-              <div className="flex flex-wrap gap-2">
+  // Render step content
+  const renderStepContent = () => {
+    switch (currentStepData.id) {
+      case 'embeddings':
+        return (
+          <div className="space-y-6">
+            {/* Token display */}
+            <div className="bg-gradient-to-r from-blue-50 to-purple-50 p-6 rounded-xl border-2 border-blue-200">
+              <h4 className="font-semibold text-lg mb-4 text-gray-800">Our Tokens:</h4>
+              <div className="flex flex-wrap gap-3">
                 {tokens.map((token, i) => (
-                  <span key={i} className="px-4 py-2 bg-blue-100 text-blue-800 rounded-lg font-medium">
-                    {token}
-                  </span>
+                  <div
+                    key={i}
+                    className="px-5 py-3 bg-white rounded-lg border-2 border-blue-300 shadow-md hover:shadow-lg transition-shadow"
+                  >
+                    <div className="font-bold text-blue-800">{token}</div>
+                    <div className="text-xs text-gray-500 mt-1">Token {i}</div>
+                  </div>
                 ))}
               </div>
-              {showMath && (
-                <div className="bg-gray-50 p-4 rounded-lg">
-                  <h5 className="font-semibold mb-2">📐 The Math:</h5>
-                  <p className="text-sm mb-2">Each word gets converted to a {dModel}-dimensional vector:</p>
-                  <div className="font-mono text-sm bg-white p-2 rounded border">
-                    embedding[i] = [sin(i×0.5)×0.8+0.2, cos(i×0.3)×0.6+0.4, word_length×0.1, char_code×0.1]
-                  </div>
-                </div>
-              )}
             </div>
+
+            {/* Matrix visualization */}
             {showMath && embeddings.length > 0 && (
-              <SimpleMatrix 
-                matrix={embeddings.map((emb, i) => [tokens[i], ...emb])}
-                title="Word Vectors"
-                description="Each word as 4 numbers"
-                colorCode={true}
+              <MatrixHeatmap
+                matrix={embeddings}
+                rowLabels={tokens}
+                colLabels={['d₀', 'd₁', 'd₂', 'd₃']}
+                title="Embedding Matrix"
+                description={`Each row is a ${dModel}-dimensional vector representing one token`}
+                colorScheme="default"
+                showValues={true}
+                animate={true}
               />
             )}
           </div>
-        )}
+        );
 
-        {step.component === "qkv" && (
-          <div>
-            <div className="grid md:grid-cols-3 gap-4 mb-4">
-              <div className="bg-red-50 p-4 rounded-lg border-2 border-red-200">
-                <h4 className="font-semibold text-red-800 mb-2">🔍 Query: "What am I looking for?"</h4>
-                <p className="text-sm text-red-700">Each word asks: "What information do I need from other words?"</p>
+      case 'qkv':
+        return (
+          <div className="space-y-6">
+            {/* Concept cards */}
+            <div className="grid md:grid-cols-3 gap-4">
+              <div className="bg-gradient-to-br from-red-50 to-red-100 p-5 rounded-xl border-2 border-red-200 shadow-md">
+                <h4 className="font-bold text-red-800 mb-2 flex items-center gap-2">
+                  <span className="text-2xl">🔍</span> Query (Q)
+                </h4>
+                <p className="text-sm text-red-700">
+                  "What am I looking for?"
+                  <br />
+                  What information does this word need?
+                </p>
               </div>
-              <div className="bg-green-50 p-4 rounded-lg border-2 border-green-200">
-                <h4 className="font-semibold text-green-800 mb-2">🔑 Key: "What do I offer?"</h4>
-                <p className="text-sm text-green-700">Each word advertises: "Here's what I can provide!"</p>
+              <div className="bg-gradient-to-br from-cyan-50 to-cyan-100 p-5 rounded-xl border-2 border-cyan-200 shadow-md">
+                <h4 className="font-bold text-cyan-800 mb-2 flex items-center gap-2">
+                  <span className="text-2xl">🔑</span> Key (K)
+                </h4>
+                <p className="text-sm text-cyan-700">
+                  "What do I offer?"
+                  <br />
+                  What information can this word provide?
+                </p>
               </div>
-              <div className="bg-blue-50 p-4 rounded-lg border-2 border-blue-200">
-                <h4 className="font-semibold text-blue-800 mb-2">💎 Value: "Here's my contribution"</h4>
-                <p className="text-sm text-blue-700">Each word says: "If you pay attention to me, here's what I'll give you!"</p>
+              <div className="bg-gradient-to-br from-green-50 to-green-100 p-5 rounded-xl border-2 border-green-200 shadow-md">
+                <h4 className="font-bold text-green-800 mb-2 flex items-center gap-2">
+                  <span className="text-2xl">💎</span> Value (V)
+                </h4>
+                <p className="text-sm text-green-700">
+                  "What will I contribute?"
+                  <br />
+                  The actual information to pass along
+                </p>
               </div>
             </div>
+
+            {/* Matrix visualizations */}
             {showMath && Q.length > 0 && (
-              <div className="space-y-4">
-                <div className="bg-gray-50 p-4 rounded-lg">
-                  <h5 className="font-semibold mb-2">📐 The Math:</h5>
-                  <div className="space-y-2 text-sm">
-                    <p><strong>Query (Q):</strong> Q = Embeddings × W_Q</p>
-                    <p><strong>Key (K):</strong> K = Embeddings × W_K</p>
-                    <p><strong>Value (V):</strong> V = Embeddings × W_V</p>
-                    <p className="text-gray-600">Each embedding vector gets multiplied by learned weight matrices to create the three different "views"</p>
-                  </div>
-                </div>
-                <div className="grid md:grid-cols-3 gap-4">
-                  <SimpleMatrix matrix={Q.map((q, i) => [tokens[i], ...q])} title="Queries (Q)" colorCode={true} />
-                  <SimpleMatrix matrix={K.map((k, i) => [tokens[i], ...k])} title="Keys (K)" colorCode={true} />
-                  <SimpleMatrix matrix={V.map((v, i) => [tokens[i], ...v])} title="Values (V)" colorCode={true} />
-                </div>
+              <div className="grid md:grid-cols-3 gap-4">
+                <MatrixHeatmap
+                  matrix={Q}
+                  rowLabels={tokens}
+                  title="Query (Q)"
+                  colorScheme="default"
+                  showValues={true}
+                />
+                <MatrixHeatmap
+                  matrix={K}
+                  rowLabels={tokens}
+                  title="Key (K)"
+                  colorScheme="default"
+                  showValues={true}
+                />
+                <MatrixHeatmap
+                  matrix={V}
+                  rowLabels={tokens}
+                  title="Value (V)"
+                  colorScheme="default"
+                  showValues={true}
+                />
               </div>
             )}
-          </div>
-        )}
 
-        {step.component === "scores" && (
-          <div className="space-y-4">
-            <div className="bg-yellow-50 p-4 rounded-lg border-2 border-yellow-200">
-              <h4 className="font-semibold text-yellow-800 mb-2">🎯 Compatibility Matching</h4>
-              <p className="text-yellow-700">We're checking: "How well does what word A is looking for match with what word B offers?"</p>
-            </div>
-            {showMath && (
-              <div className="space-y-4">
-                <div className="bg-gray-50 p-4 rounded-lg">
-                  <h5 className="font-semibold mb-2">📐 The Math:</h5>
-                  <div className="space-y-2 text-sm">
-                    <p><strong>Step 1:</strong> Compute raw scores: Scores = Q × K^T</p>
-                    <p><strong>Step 2:</strong> Scale by √d_k: Scaled = Scores ÷ √{dK}</p>
-                    <p className="text-gray-600">We transpose K so each query can be compared with every key</p>
-                  </div>
-                </div>
-                {scores.length > 0 && (
-                  <SimpleMatrix 
-                    matrix={scores}
-                    title="Raw Compatibility Scores (Q × K^T)"
-                    description="Higher = better match"
-                    colorCode={true}
-                  />
-                )}
-                {scaledScores.length > 0 && (
-                  <SimpleMatrix 
-                    matrix={scaledScores}
-                    title={`Scaled Scores (÷ √${dK})`}
-                    description="Prevents very large values that could cause problems"
-                    colorCode={true}
-                  />
-                )}
-              </div>
-            )}
-          </div>
-        )}
-
-        {step.component === "attention" && (
-          <div className="space-y-4">
-            {showMath && scaledScores.length > 0 && (
-              <div className="bg-gray-50 p-4 rounded-lg mb-4">
-                <h5 className="font-semibold mb-2">📐 The Math:</h5>
-                <div className="space-y-2 text-sm">
-                  <p><strong>Softmax Formula:</strong> softmax(x_i) = e^x_i / Σ(e^x_j)</p>
-                  <p><strong>What it does:</strong> Converts raw scores into probabilities that sum to 1</p>
-                  <p className="text-gray-600">This ensures each word has a probability distribution over all other words</p>
-                </div>
-              </div>
-            )}
-            <AttentionGraph weights={attentionWeights} tokenList={tokens} />
-            <AttentionFlow weights={attentionWeights} tokenList={tokens} />
-            <div className="bg-blue-50 p-4 rounded-lg border-2 border-blue-200">
-              <h4 className="font-semibold text-blue-800 mb-2">👆 Try This!</h4>
-              <p className="text-blue-700">Hover over the words above to see what each one pays attention to, then click to lock the view!</p>
-            </div>
-          </div>
-        )}
-
-        {step.component === "output" && (
-          <div className="space-y-4">
-            <div className="bg-green-50 p-4 rounded-lg border-2 border-green-200">
-              <h4 className="font-semibold text-green-800 mb-2">🎉 Information Gathering Complete!</h4>
-              <p className="text-green-700">Each word now contains not just its own information, but a weighted blend of information from all the words it paid attention to!</p>
-            </div>
-            {showMath && output.length > 0 && (
-              <div className="space-y-4">
-                <div className="bg-gray-50 p-4 rounded-lg">
-                  <h5 className="font-semibold mb-2">📐 The Math:</h5>
-                  <div className="space-y-2 text-sm">
-                    <p><strong>Final Output:</strong> Output = Attention_Weights × V</p>
-                    <p><strong>What it does:</strong> Each word gets a weighted combination of all Value vectors</p>
-                    <p className="text-gray-600">The attention weights determine how much each word contributes to the final representation</p>
-                  </div>
-                </div>
-                <SimpleMatrix 
-                  matrix={output.map((out, i) => [tokens[i], ...out])}
-                  title="Enhanced Word Representations"
-                  description="Each word now knows about the context around it"
-                  colorCode={true}
+            {/* Vector visualization for first two tokens */}
+            {Q.length >= 2 && Q[0].length >= 2 && (
+              <div className="bg-white p-6 rounded-xl border-2 border-gray-200 shadow-lg">
+                <h4 className="font-semibold text-lg mb-4">
+                  Geometric View: Query vs Key for "{tokens[0]}" and "{tokens[1]}"
+                </h4>
+                <DotProductVisualization
+                  query={Q[0].slice(0, 2)}
+                  key={K[1].slice(0, 2)}
+                  queryLabel={`Q[${tokens[0]}]`}
+                  keyLabel={`K[${tokens[1]}]`}
+                  animate={true}
                 />
               </div>
             )}
           </div>
-        )}
-      </div>
-    );
+        );
+
+      case 'scores':
+        return (
+          <div className="space-y-6">
+            <div className="bg-yellow-50 p-6 rounded-xl border-2 border-yellow-200">
+              <h4 className="font-semibold text-yellow-900 mb-2 flex items-center gap-2">
+                <span className="text-2xl">🎯</span> Computing Compatibility
+              </h4>
+              <p className="text-yellow-800">
+                We multiply each Query with every Key (transposed) to get a compatibility score.
+                Higher score = better match!
+              </p>
+            </div>
+
+            {showMath && scores.length > 0 && (
+              <>
+                <MatrixHeatmap
+                  matrix={scores}
+                  rowLabels={tokens}
+                  colLabels={tokens}
+                  title="Raw Scores (Q × K^T)"
+                  description="Each cell shows how much token i's Query matches token j's Key"
+                  colorScheme="diverging"
+                  showValues={true}
+                  animate={true}
+                />
+
+                <MatrixHeatmap
+                  matrix={scaledScores}
+                  rowLabels={tokens}
+                  colLabels={tokens}
+                  title={`Scaled Scores (÷ √${dK})`}
+                  description="Scaling prevents extreme values"
+                  colorScheme="diverging"
+                  showValues={true}
+                  animate={true}
+                />
+              </>
+            )}
+          </div>
+        );
+
+      case 'attention':
+        return (
+          <div className="space-y-6">
+            {showMath && attentionWeights.length > 0 && (
+              <MatrixHeatmap
+                matrix={attentionWeights}
+                rowLabels={tokens}
+                colLabels={tokens}
+                title="Attention Weights"
+                description="Each row is a probability distribution (sums to 1.0)"
+                isAttention={true}
+                showValues={true}
+                animate={true}
+                highlightRow={selectedToken}
+              />
+            )}
+
+            <div className="bg-white p-6 rounded-xl border-2 border-gray-200 shadow-lg">
+              <h4 className="font-semibold text-lg mb-4 flex items-center gap-2">
+                <span className="text-2xl">🌊</span> Attention Flow Visualization
+              </h4>
+              <AttentionFlow
+                tokens={tokens}
+                attentionWeights={attentionWeights}
+                selectedToken={selectedToken}
+                animate={true}
+                width={800}
+                height={300}
+              />
+            </div>
+
+            <div className="bg-blue-50 p-5 rounded-xl border-2 border-blue-200">
+              <p className="text-blue-900">
+                <strong>💡 Try This:</strong> Click on a token in the flow visualization above to
+                see its attention pattern!
+              </p>
+            </div>
+          </div>
+        );
+
+      case 'output':
+        return (
+          <div className="space-y-6">
+            <div className="bg-green-50 p-6 rounded-xl border-2 border-green-200">
+              <h4 className="font-semibold text-green-900 mb-2 flex items-center gap-2">
+                <span className="text-2xl">✨</span> Context-Aware Representations
+              </h4>
+              <p className="text-green-800">
+                Each word now contains not just its own information, but a weighted blend from all
+                words it paid attention to!
+              </p>
+            </div>
+
+            {showMath && output.length > 0 && (
+              <MatrixHeatmap
+                matrix={output}
+                rowLabels={tokens}
+                colLabels={['o₀', 'o₁']}
+                title="Output Vectors"
+                description="Context-enriched representations after attention"
+                colorScheme="default"
+                showValues={true}
+                animate={true}
+              />
+            )}
+
+            <div className="bg-purple-50 p-6 rounded-xl border-2 border-purple-200">
+              <h4 className="font-semibold text-purple-900 mb-3">🎓 Key Takeaway</h4>
+              <p className="text-purple-800 mb-3">
+                The attention mechanism allows each word to dynamically gather relevant information
+                from the entire sequence. This is how transformers understand context!
+              </p>
+              <p className="text-sm text-purple-700">
+                In real transformers, this process happens with multiple attention heads in
+                parallel, and is repeated across many layers.
+              </p>
+            </div>
+          </div>
+        );
+
+      default:
+        return null;
+    }
   };
+
+  const exampleSentences = [
+    'The cat sat on the mat',
+    'She loves reading books',
+    'Coffee tastes great in morning',
+    'The dog chased the ball',
+    'Attention is all you need',
+  ];
 
   return (
-    <div className="max-w-6xl mx-auto p-6 bg-gradient-to-br from-blue-50 to-indigo-100 min-h-screen">
-      <div className="bg-white rounded-2xl shadow-xl p-8">
-        {tokens.length === 0 ? (
-          // Empty state
-          <div className="text-center py-16">
-            <h1 className="text-4xl font-bold mb-4 text-gray-800">
-              How AI Pays Attention
-            </h1>
-            <p className="text-xl text-gray-600 mb-6">
-              Discover how AI models like ChatGPT understand which words are important to each other
-            </p>
-            <div className="mb-6">
-              <input
-                type="text"
+    <div className="min-h-screen bg-gradient-to-br from-blue-50 via-purple-50 to-pink-50 p-6">
+      <div className="max-w-7xl mx-auto">
+        {/* Header */}
+        <div className="text-center mb-8">
+          <h1 className="text-5xl font-bold mb-4 bg-gradient-to-r from-blue-600 to-purple-600 bg-clip-text text-transparent">
+            How AI Pays Attention
+          </h1>
+          <p className="text-xl text-gray-700 max-w-3xl mx-auto">
+            An interactive journey through the transformer attention mechanism—the breakthrough that
+            powers modern AI like ChatGPT
+          </p>
+        </div>
+
+        {/* Main content */}
+        <div className="grid lg:grid-cols-3 gap-6 mb-6">
+          {/* Left column - Controls */}
+          <div className="lg:col-span-1 space-y-4">
+            {/* Input */}
+            <div className="bg-white rounded-xl p-6 shadow-lg border-2 border-gray-200">
+              <label className="block font-semibold text-gray-800 mb-3">
+                <BookOpen className="inline mr-2" size={20} />
+                Input Text:
+              </label>
+              <textarea
                 value={inputText}
                 onChange={(e) => setInputText(e.target.value)}
-                className="px-4 py-3 border-2 border-gray-300 rounded-lg w-full max-w-md text-lg focus:border-blue-500 focus:outline-none"
-                placeholder="Type some words to get started..."
-                autoFocus
+                className="w-full px-4 py-3 border-2 border-gray-300 rounded-lg focus:border-blue-500 focus:outline-none resize-none"
+                rows={3}
+                placeholder="Type your text here..."
               />
-            </div>
-            <div className="bg-blue-50 p-6 rounded-lg border-2 border-blue-200 max-w-md mx-auto">
-              <h3 className="font-bold text-lg mb-3 text-blue-800">💡 Try These Examples:</h3>
-              <div className="space-y-2">
-                {[
-                  "The cat sat on the mat",
-                  "She loves reading books", 
-                  "Coffee tastes great in morning",
-                  "The dog chased the ball"
-                ].map((example, i) => (
-                  <button
-                    key={i}
-                    onClick={() => setInputText(example)}
-                    className="w-full text-left p-3 bg-white rounded-lg border-2 border-blue-200 hover:border-blue-400 transition-all"
-                  >
-                    <span className="font-medium text-blue-800">"{example}"</span>
-                  </button>
-                ))}
+
+              <div className="mt-4">
+                <div className="text-sm font-semibold text-gray-700 mb-2">Quick Examples:</div>
+                <div className="space-y-2">
+                  {exampleSentences.map((sentence, i) => (
+                    <button
+                      key={i}
+                      onClick={() => setInputText(sentence)}
+                      className="w-full text-left px-3 py-2 bg-gray-50 hover:bg-blue-50 rounded-lg border border-gray-200 hover:border-blue-300 transition-all text-sm"
+                    >
+                      "{sentence}"
+                    </button>
+                  ))}
+                </div>
               </div>
             </div>
+
+            {/* Interactive Controls */}
+            <InteractiveControls
+              temperature={temperature}
+              onTemperatureChange={setTemperature}
+              showMath={showMath}
+              onShowMathChange={setShowMath}
+              autoPlay={autoPlay}
+              onAutoPlayChange={setAutoPlay}
+              step={currentStep}
+              maxSteps={steps.length}
+              onStepChange={setCurrentStep}
+            />
           </div>
-        ) : (
-          // Main content when we have tokens
-          <>
-            <div className="mb-8">
-              <h1 className="text-4xl font-bold mb-4 text-gray-800">
-                How AI Pays Attention
-              </h1>
-              <p className="text-xl text-gray-600 mb-6">
-                Discover how AI models like ChatGPT understand which words are important to each other
-              </p>
-              
-              <div className="flex flex-wrap gap-4 items-center mb-6">
-                <input
-                  type="text"
-                  value={inputText}
-                  onChange={(e) => setInputText(e.target.value)}
-                  className="px-4 py-3 border-2 border-gray-300 rounded-lg flex-1 max-w-md text-lg focus:border-blue-500 focus:outline-none"
-                  placeholder="Try: The cat sat on the mat"
-                />
+
+          {/* Right column - Visualization */}
+          <div className="lg:col-span-2 space-y-6">
+            {/* Progress */}
+            <div className="bg-white rounded-xl p-6 shadow-lg border-2 border-gray-200">
+              <div className="flex items-center justify-between mb-4">
+                <h2 className="text-2xl font-bold text-gray-800">
+                  {currentStepData.icon} {currentStepData.title}
+                </h2>
                 <button
-                  onClick={() => setIsPlaying(!isPlaying)}
-                  className="px-6 py-3 bg-blue-600 text-white rounded-lg flex items-center gap-2 font-medium hover:bg-blue-700 transition-colors"
+                  onClick={() => setAutoPlay(!autoPlay)}
+                  className="px-4 py-2 bg-blue-600 text-white rounded-lg flex items-center gap-2 hover:bg-blue-700 transition-colors"
                 >
-                  {isPlaying ? <Pause size={20} /> : <Play size={20} />}
-                  {isPlaying ? 'Pause Tour' : 'Start Tour'}
-                </button>
-                <button
-                  onClick={() => setShowMath(!showMath)}
-                  className={`px-4 py-3 rounded-lg flex items-center gap-2 font-medium transition-all ${
-                    showMath ? 'bg-gray-600 text-white' : 'bg-gray-200 text-gray-700 hover:bg-gray-300'
-                  }`}
-                >
-                  Show Math
+                  {autoPlay ? <Pause size={18} /> : <Play size={18} />}
+                  {autoPlay ? 'Pause' : 'Play'}
                 </button>
               </div>
 
+              <h3 className="text-lg text-blue-600 font-medium mb-2">
+                {currentStepData.subtitle}
+              </h3>
+              <p className="text-gray-700 mb-4">{currentStepData.description}</p>
+
               {/* Progress bar */}
-              <div className="w-full bg-gray-200 rounded-full h-3 mb-6">
-                <div 
-                  className="bg-blue-600 h-3 rounded-full transition-all duration-500"
+              <div className="w-full bg-gray-200 rounded-full h-3 mb-4 overflow-hidden">
+                <div
+                  className="h-full bg-gradient-to-r from-blue-500 to-purple-500 transition-all duration-500"
                   style={{ width: `${((currentStep + 1) / steps.length) * 100}%` }}
                 />
               </div>
 
-              {/* Step navigation */}
-              <div className="flex flex-wrap gap-2 mb-6">
-                {steps.map((step, index) => (
-                  <button
-                    key={index}
-                    onClick={() => setCurrentStep(index)}
-                    className={`px-4 py-2 rounded-lg text-sm font-medium transition-all ${
-                      index === currentStep 
-                        ? 'bg-blue-600 text-white shadow-lg' 
-                        : index < currentStep 
-                          ? 'bg-green-100 text-green-800 hover:bg-green-200'
-                          : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
-                    }`}
-                  >
-                    {index + 1}. {step.title.split(':')[0]}
-                  </button>
-                ))}
-              </div>
-            </div>
-
-            {/* Current Step Display */}
-            <div className="bg-gradient-to-br from-gray-50 to-blue-50 border-2 border-blue-200 rounded-xl p-8 mb-6">
-              <div className="flex items-start gap-4 mb-6">
-                <div className="w-12 h-12 bg-blue-600 text-white rounded-full flex items-center justify-center font-bold text-xl flex-shrink-0">
-                  {currentStep + 1}
-                </div>
-                <div className="flex-1">
-                  <h2 className="text-2xl font-bold mb-2">{steps[currentStep].title}</h2>
-                  <h3 className="text-lg text-blue-600 font-medium mb-2">{steps[currentStep].subtitle}</h3>
-                  <p className="text-gray-700">{steps[currentStep].description}</p>
-                </div>
-              </div>
-              
-              <StepContent />
-            </div>
-
-            {/* Quick tips */}
-            <div className="bg-gradient-to-r from-yellow-50 to-orange-50 border-2 border-yellow-200 rounded-xl p-6">
-              <h3 className="font-bold text-lg mb-3 text-yellow-800">💡 Try These Examples:</h3>
-              <div className="grid md:grid-cols-2 gap-4">
-                {[
-                  "The red car drove fast",
-                  "She loves reading books",
-                  "Coffee tastes great in morning",
-                  "The dog chased the ball"
-                ].map((example, i) => (
+              {/* Step buttons */}
+              <div className="flex flex-wrap gap-2">
+                {steps.map((step, i) => (
                   <button
                     key={i}
-                    onClick={() => setInputText(example)}
-                    className="text-left p-3 bg-white rounded-lg border-2 border-yellow-200 hover:border-yellow-400 transition-all"
+                    onClick={() => setCurrentStep(i)}
+                    className={`px-4 py-2 rounded-lg font-medium transition-all ${
+                      i === currentStep
+                        ? 'bg-gradient-to-r from-blue-600 to-purple-600 text-white shadow-lg scale-105'
+                        : i < currentStep
+                        ? 'bg-green-100 text-green-800 hover:bg-green-200'
+                        : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+                    }`}
                   >
-                    <span className="font-medium text-yellow-800">"{example}"</span>
+                    {step.icon} {i + 1}
                   </button>
                 ))}
               </div>
             </div>
-          </>
-        )}
+
+            {/* Step content */}
+            <div className="bg-white rounded-xl p-6 shadow-lg border-2 border-gray-200">
+              {renderStepContent()}
+            </div>
+
+            {/* Calculation breakdown */}
+            {showMath && (
+              <CalculationBreakdown
+                title={`Mathematical Breakdown: ${currentStepData.title}`}
+                steps={getCalculationSteps()}
+                defaultExpanded={false}
+              />
+            )}
+          </div>
+        </div>
+
+        {/* Footer info */}
+        <div className="bg-white rounded-xl p-6 shadow-lg border-2 border-gray-200 text-center">
+          <div className="flex items-center justify-center gap-2 mb-2">
+            <Lightbulb className="text-yellow-500" />
+            <h3 className="font-bold text-gray-800">About This Visualization</h3>
+          </div>
+          <p className="text-gray-600 text-sm max-w-3xl mx-auto">
+            This interactive tool breaks down the self-attention mechanism from the "Attention is All
+            You Need" paper. It uses simplified mathematics and beautiful visualizations inspired by
+            3Blue1Brown to make transformers intuitive and accessible to everyone.
+          </p>
+        </div>
       </div>
     </div>
   );
