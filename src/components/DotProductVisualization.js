@@ -255,7 +255,7 @@ const DotProductVisualization = ({
       />
       <div className="mt-4 p-4 bg-blue-50 rounded-lg border border-blue-200">
         <p className="text-sm text-blue-900">
-          <strong>💡 Key Insight:</strong> The dot product measures how much two vectors point in the same direction.
+          <strong>Key Insight:</strong> The dot product measures how much two vectors point in the same direction.
           In attention, this tells us how relevant the Key is to the Query!
         </p>
       </div>

@@ -1,5 +1,5 @@
 import React from 'react';
-import { Sliders, Thermometer, Zap } from 'lucide-react';
+import { Sliders, Thermometer } from 'lucide-react';
 import { COLORS } from '../utils/colorUtils';
 
 /**
@@ -36,7 +36,7 @@ const InteractiveControls = ({
                 </label>
               </div>
               <div className="text-sm text-gray-500">
-                {temperature < 0.5 ? '❄️ Sharp' : temperature > 1.5 ? '🔥 Smooth' : '⚖️ Balanced'}
+                {temperature < 0.5 ? 'Sharp' : temperature > 1.5 ? 'Smooth' : 'Balanced'}
               </div>
             </div>
 
@@ -64,7 +64,7 @@ const InteractiveControls = ({
 
             <div className="mt-3 p-3 bg-blue-50 rounded-lg border border-blue-200">
               <p className="text-sm text-blue-900">
-                <strong>💡 What does temperature do?</strong>
+                <strong>What does temperature do?</strong>
                 <br />
                 Lower temperature makes attention more focused on top matches.
                 Higher temperature spreads attention more evenly.
@@ -107,7 +107,6 @@ const InteractiveControls = ({
               />
               <div className="flex-1">
                 <div className="flex items-center gap-2">
-                  <Zap className="text-yellow-500" size={18} />
                   <div className="font-semibold text-gray-700 group-hover:text-blue-600 transition-colors">
                     Auto-Play Tutorial
                   </div>
@@ -168,19 +167,19 @@ const InteractiveControls = ({
                 onClick={() => onTemperatureChange(0.3)}
                 className="px-3 py-2 bg-blue-100 text-blue-700 rounded-lg text-sm font-medium hover:bg-blue-200 transition-colors"
               >
-                🎯 Sharp
+                Sharp
               </button>
               <button
                 onClick={() => onTemperatureChange(1.0)}
                 className="px-3 py-2 bg-purple-100 text-purple-700 rounded-lg text-sm font-medium hover:bg-purple-200 transition-colors"
               >
-                ⚖️ Normal
+                Normal
               </button>
               <button
                 onClick={() => onTemperatureChange(2.0)}
                 className="px-3 py-2 bg-orange-100 text-orange-700 rounded-lg text-sm font-medium hover:bg-orange-200 transition-colors"
               >
-                🌊 Smooth
+                Smooth
               </button>
             </div>
           </div>

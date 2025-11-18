@@ -92,7 +92,6 @@ const AttentionVisualizer = () => {
       subtitle: 'Converting language to mathematics',
       description:
         'Each word is represented as a vector of numbers. This encoding captures semantic meaning in a form computers can process.',
-      icon: '📊',
     },
     {
       id: 'qkv',
@@ -100,7 +99,6 @@ const AttentionVisualizer = () => {
       subtitle: 'Three perspectives on each word',
       description:
         'We transform each word into three different "views": what it\'s looking for (Query), what it offers (Key), and what it contributes (Value).',
-      icon: '🔑',
     },
     {
       id: 'scores',
@@ -108,7 +106,6 @@ const AttentionVisualizer = () => {
       subtitle: 'Measuring similarity',
       description:
         'We compute how well each Query matches with each Key using the dot product—a geometric measure of alignment.',
-      icon: '🎯',
     },
     {
       id: 'attention',
@@ -116,7 +113,6 @@ const AttentionVisualizer = () => {
       subtitle: 'From scores to probabilities',
       description:
         'Softmax converts compatibility scores into a probability distribution, determining how much attention each word pays to others.',
-      icon: '💡',
     },
     {
       id: 'output',
@@ -124,7 +120,6 @@ const AttentionVisualizer = () => {
       subtitle: 'Gathering contextual information',
       description:
         'Each word gathers information from others, weighted by attention. The result is context-aware representations.',
-      icon: '✨',
     },
   ];
 
@@ -277,8 +272,8 @@ const AttentionVisualizer = () => {
             {/* Concept cards */}
             <div className="grid md:grid-cols-3 gap-4">
               <div className="bg-gradient-to-br from-red-50 to-red-100 p-5 rounded-xl border-2 border-red-200 shadow-md">
-                <h4 className="font-bold text-red-800 mb-2 flex items-center gap-2">
-                  <span className="text-2xl">🔍</span> Query (Q)
+                <h4 className="font-bold text-red-800 mb-2">
+                  Query (Q)
                 </h4>
                 <p className="text-sm text-red-700">
                   "What am I looking for?"
@@ -287,8 +282,8 @@ const AttentionVisualizer = () => {
                 </p>
               </div>
               <div className="bg-gradient-to-br from-cyan-50 to-cyan-100 p-5 rounded-xl border-2 border-cyan-200 shadow-md">
-                <h4 className="font-bold text-cyan-800 mb-2 flex items-center gap-2">
-                  <span className="text-2xl">🔑</span> Key (K)
+                <h4 className="font-bold text-cyan-800 mb-2">
+                  Key (K)
                 </h4>
                 <p className="text-sm text-cyan-700">
                   "What do I offer?"
@@ -297,8 +292,8 @@ const AttentionVisualizer = () => {
                 </p>
               </div>
               <div className="bg-gradient-to-br from-green-50 to-green-100 p-5 rounded-xl border-2 border-green-200 shadow-md">
-                <h4 className="font-bold text-green-800 mb-2 flex items-center gap-2">
-                  <span className="text-2xl">💎</span> Value (V)
+                <h4 className="font-bold text-green-800 mb-2">
+                  Value (V)
                 </h4>
                 <p className="text-sm text-green-700">
                   "What will I contribute?"
@@ -357,8 +352,8 @@ const AttentionVisualizer = () => {
         return (
           <div className="space-y-6">
             <div className="bg-yellow-50 p-6 rounded-xl border-2 border-yellow-200">
-              <h4 className="font-semibold text-yellow-900 mb-2 flex items-center gap-2">
-                <span className="text-2xl">🎯</span> Computing Compatibility
+              <h4 className="font-semibold text-yellow-900 mb-2">
+                Computing Compatibility
               </h4>
               <p className="text-yellow-800">
                 We multiply each Query with every Key (transposed) to get a compatibility score.
@@ -411,8 +406,8 @@ const AttentionVisualizer = () => {
             )}
 
             <div className="bg-white p-6 rounded-xl border-2 border-gray-200 shadow-lg">
-              <h4 className="font-semibold text-lg mb-4 flex items-center gap-2">
-                <span className="text-2xl">🌊</span> Attention Flow Visualization
+              <h4 className="font-semibold text-lg mb-4">
+                Attention Flow Visualization
               </h4>
               <AttentionFlow
                 tokens={tokens}
@@ -426,7 +421,7 @@ const AttentionVisualizer = () => {
 
             <div className="bg-blue-50 p-5 rounded-xl border-2 border-blue-200">
               <p className="text-blue-900">
-                <strong>💡 Try This:</strong> Click on a token in the flow visualization above to
+                <strong>Try This:</strong> Click on a token in the flow visualization above to
                 see its attention pattern!
               </p>
             </div>
@@ -437,8 +432,8 @@ const AttentionVisualizer = () => {
         return (
           <div className="space-y-6">
             <div className="bg-green-50 p-6 rounded-xl border-2 border-green-200">
-              <h4 className="font-semibold text-green-900 mb-2 flex items-center gap-2">
-                <span className="text-2xl">✨</span> Context-Aware Representations
+              <h4 className="font-semibold text-green-900 mb-2">
+                Context-Aware Representations
               </h4>
               <p className="text-green-800">
                 Each word now contains not just its own information, but a weighted blend from all
@@ -460,7 +455,7 @@ const AttentionVisualizer = () => {
             )}
 
             <div className="bg-purple-50 p-6 rounded-xl border-2 border-purple-200">
-              <h4 className="font-semibold text-purple-900 mb-3">🎓 Key Takeaway</h4>
+              <h4 className="font-semibold text-purple-900 mb-3">Key Takeaway</h4>
               <p className="text-purple-800 mb-3">
                 The attention mechanism allows each word to dynamically gather relevant information
                 from the entire sequence. This is how transformers understand context!
@@ -554,7 +549,7 @@ const AttentionVisualizer = () => {
             <div className="bg-white rounded-xl p-6 shadow-lg border-2 border-gray-200">
               <div className="flex items-center justify-between mb-4">
                 <h2 className="text-2xl font-bold text-gray-800">
-                  {currentStepData.icon} {currentStepData.title}
+                  {currentStepData.title}
                 </h2>
                 <button
                   onClick={() => setAutoPlay(!autoPlay)}
@@ -592,7 +587,7 @@ const AttentionVisualizer = () => {
                         : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
                     }`}
                   >
-                    {step.icon} {i + 1}
+                    Step {i + 1}
                   </button>
                 ))}
               </div>
