@@ -1,20 +1,16 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { Play, Pause, Lightbulb, BookOpen } from 'lucide-react';
-import VectorVisualization from './VectorVisualization';
 import DotProductVisualization from './DotProductVisualization';
 import MatrixHeatmap from './MatrixHeatmap';
 import InteractiveControls from './InteractiveControls';
 import AttentionFlow from './AttentionFlow';
-import CalculationBreakdown, { InlineFormula, MatrixDisplay } from './CalculationBreakdown';
-import { COLORS } from '../utils/colorUtils';
+import CalculationBreakdown from './CalculationBreakdown';
 import {
   generateEmbeddings,
   initWeightMatrix,
   matMul,
   transpose,
-  computeAttentionScores,
   softmax,
-  computeAttentionWeights,
   computeAttentionOutput,
 } from '../utils/mathUtils';
 
@@ -29,7 +25,6 @@ const AttentionVisualizer = () => {
   const [showMath, setShowMath] = useState(true);
   const [autoPlay, setAutoPlay] = useState(false);
   const [temperature, setTemperature] = useState(1.0);
-  const [selectedToken, setSelectedToken] = useState(null);
 
   // Model dimensions
   const dModel = 4;
@@ -83,7 +78,7 @@ const AttentionVisualizer = () => {
     if (!autoPlay) return;
 
     const interval = setInterval(() => {
-      setCurrentStep((s) => (s + 1) % steps.length);
+      setCurrentStep((s) => (s + 1) % 5); // 5 total steps
     }, 5000);
 
     return () => clearInterval(interval);
@@ -412,7 +407,6 @@ const AttentionVisualizer = () => {
                 isAttention={true}
                 showValues={true}
                 animate={true}
-                highlightRow={selectedToken}
               />
             )}
 
@@ -423,7 +417,7 @@ const AttentionVisualizer = () => {
               <AttentionFlow
                 tokens={tokens}
                 attentionWeights={attentionWeights}
-                selectedToken={selectedToken}
+                selectedToken={null}
                 animate={true}
                 width={800}
                 height={300}
